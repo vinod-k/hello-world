@@ -1,0 +1,382 @@
+#!/ms/dist/perl5/bin/perl5.10
+
+use strict;
+use CGI qw(:standard);
+use CGI::Carp qw(fatalsToBrowser);
+
+use Data::Dumper;
+use MSDW::Version
+  'XML-Simple'         => '2.18',
+  'XML-SAX'            => '0.99-ms1', # Used by XML::Simple
+  'XML-NamespaceSupport' => '1.11',  # Used by XML::SAX
+  'XML-SAX-Base'       => '1.08',  # Used by XML::SAX
+  'XML-Parser'         => '2.44-2.1.1',
+  'libwww-perl'        => '6.13',  # LWP::UserAgent used by XML::Parser
+  'Encode-Locale'      => '1.02',  # Used by LWP::UserAgent
+  'HTTP-Message'       => '6.11',  # HTTP::Response used by LWP, LWP::MemberMixin, LWP::Protocol, LWP::ConnCache
+  'HTTP-Date'          => '6.00',  # Used by LWP::UserAgent
+  'LWP-MediaTypes'     => '6.01',  # Used by LWP, HTTP::Response, HTTP::Headers::Util, HTTP::Config, HTTP::Request, LWP::MemberMixin, LWP::Protocol, LWP::ConnCache
+  'URI'                => '1.71',  # Used by LWP, HTTP::Response, HTTP::Headers::Util, HTTP::Config, HTTP::Request, LWP::MemberMixin, LWP::Protocol, LWP::ConnCache
+  'IO-HTML'            => '1.00',  # Used by HTTP::Response, HTTP::Headers::Util, HTTP::Config, HTTP::Request
+  'HTTP-Cookies'       => '6.00',  # Used by LWP, LWP::MemberMixin, LWP::Protocol, LWP::ConnCache
+  'Net-HTTP'           => '6.07',  # Used by LWP, LWP::MemberMixin, LWP::Protocol, LWP::ConnCache
+  'HTTP-Daemon'        => '6.00',  # Used by LWP, LWP::MemberMixin, LWP::Protocol, LWP::ConnCache
+  'HTML-Parser'        => '3.71',  # HTML::HeadParser used by LWP::UserAgent
+  'WWW-RobotRules'     => '6.01',  # Used by LWP, LWP::MemberMixin, LWP::Protocol, LWP::ConnCache
+  'HTTP-Negotiate'     => '6.00',  # Used by LWP, LWP::MemberMixin, LWP::Protocol, LWP::ConnCache
+  'File-Listing'       => '6.02',  # Used by LWP, LWP::MemberMixin, LWP::Protocol, LWP::ConnCache
+  'XML-LibXML-Simple'  => '0.95',
+  'XML-LibXML'         => '2.0121-2.9.2-1', # Used by XML::LibXML::Simple
+  'XML-XSH2'           => '2.1.6', # XML::LibXML::NodeList used by XML::LibXML
+  'XML-LibXML-Iterator' => '1.04',  # Used by XML::LibXML::NodeList
+  'XML-NodeFilter'     => '0.01',  # Used by XML::LibXML::Iterator
+  'XML-SAX-Base'       => '1.08',  # XML::SAX::Exception used by XML::LibXML
+  'File-Slurp-Tiny'    => '0.003', # Used by XML::LibXML::Simple
+  'MSDW-Directory' => '3.6',
+  'Date-Calc'          => '6.3',  
+  'Carp-Clan'          => '6.04',  # Used by Date::Calc
+  'Time-modules'       => '99.111701',
+  'TimeDate'           => '2.30',
+  ;
+
+use XML::LibXML::Simple;
+use XML::Simple;
+
+use lib '../lib';
+use telcoRFBDB;
+use telcoDB;
+use zoneTime;
+
+print "Content-type: text/html\n\n";
+
+my $time = zoneTime->new();
+$time->title('Telco Dashboard');
+my $html = $time->printTimes();
+
+print $html;
+
+my $user = $ENV{REMOTE_USER};
+
+print '<div class="username" style="display:none;">'.$user.'</div>';
+
+my $data = XMLin('../config/test.xml');
+my $timeN = localtime();
+
+my @array = split( / /, $timeN);
+
+my $date = ( $array[3] < 10 ) ? $array[3] : $array[4]; 
+my $time_now = substr($date, 0, -6);
+
+#my $time_now = 4;
+my @timeArray = ();
+
+my ($past, $present, $future ) = (($time_now - 1), ($time_now), ($time_now + 1));
+=com
+$timeArray[0] = $past;
+$timeArray[0] = 23 if($past eq -1);
+$timeArray[1] = $present;
+$timeArray[2] = $future;
+$timeArray[2] = 0 if($future > 23);
+=cut
+
+
+
+my $cgi = CGI->new();
+my $submit = $cgi->param('submit');
+if($submit)
+{
+	telcoDB::DBinsert();
+}
+
+print <<EOF
+<html>
+<head>
+
+
+<title>TELCO DASHBOARD </title>
+         <script type="text/javascript" src="../docs/javaScript/jquery-1.8.3.min.js"></script>
+
+<style>
+table {
+    border-collapse: collapse;
+	font-family: calibri;
+}
+th {
+	background-color: #80B2FF;
+}
+select {
+	width: 120px;
+}
+.completedrow
+{
+background-color:#DAF7A6 ;
+}
+</style>
+
+<script type = "text/javascript">
+jQuery(document).ready(function(){
+
+	jQuery(".datasubmit").hide();
+	jQuery("select.selectval").change(function()
+	{
+		var selectedVal = jQuery(this).val();
+		var rownumber = jQuery(this).attr("rownumber");
+		var rowdatastatus= "rowdatastatus"+rownumber;
+		jQuery("#"+rowdatastatus).val(selectedVal);
+		var datasubmit = "datasubmit"+rownumber;
+		jQuery("#"+datasubmit).show();
+		var currentid = "selectedvalue"+rownumber;
+		selectedVal = jQuery(".username").text();
+		jQuery("#"+currentid).text(selectedVal);
+		jQuery(".nameforrow").val(rownumber);
+		var rowid="rowid"+rownumber;
+		//alert(rowid)
+		var rowvalue= "";
+		jQuery("#"+rowid+" td").each(function()
+		{
+			rowvalue +=jQuery(this).text();
+			rowvalue +="!!!";
+		});
+		var rowdata= "rowdata"+rownumber
+		jQuery("#"+rowdata).val(rowvalue);
+		jQuery.alert("Message here","Title here");
+		//alert(rowvalue);
+	});
+	jQuery(".datasubmit").click(function()
+	{		
+	});
+});
+</script>
+
+<META HTTP-EQUIV="REFRESH" CONTENT="60">
+</head>
+<body>
+
+
+<form method = "post" action = "parse_xml_file6.cgi" ENCTYPE="multipart/form-data" name="form1">
+<table border="2" align=center width=95% cellspacing>
+<br>
+<tr><th>Duration</th><th>Time(EST)</th><th>Tasks</th><th>Domain</th><th>Status</th><th>User</th><th>Acknowledge</th></tr>
+EOF
+;
+
+use Date::Format;
+use Date::Parse;
+use Time::ParseDate;
+
+my $today = time2str("%Y-%m-%d", time);
+#my $time_now = str2time(time2str("%Y-%m-%d %T", time));
+
+my $time_now = time();
+#my $time_now = 1469530800;
+
+my $red_start = parsedate("-49 minutes", NOW => $time_now ); 
+my $amber_start = parsedate("-19 minutes", NOW => $time_now );
+my $green_start = parsedate("+11 minutes", NOW => $time_now );
+my $green_end = parsedate("+41 minutes", NOW => $time_now );
+
+$timeArray[0] = $red_start;
+$timeArray[1] = $amber_start;
+$timeArray[2] = $green_start;
+$timeArray[3] = $green_end;
+
+for( my $counter = 0; $counter < scalar(@timeArray); $counter++ ){
+	my $bgColor = "#FF0000"; #red
+	$bgColor    = "#FFC200" if ($counter eq 1); #amber
+	$bgColor    = "#00FF00" if ($counter eq 2); #green
+	
+	my $count = 0;
+	my $dataFoundForHour = "NA";
+	my $tdValue;
+	
+	if($counter != 1)
+	{
+		$tdValue = "<tr bgcolor = \"$bgColor\" rownumber=\"$counter\" >";
+	}
+	else
+	{
+		my $new_counter = $counter."_".$count;
+		$tdValue = "<tr bgcolor = \"$bgColor\" rownumber=\"$counter\" class=\"rowclass\" id=\"rowid$new_counter\">";
+	}
+	my ( $rowToDisplay, $colForSelection );
+	
+	my $blankCols = "<td colspan=3></td>";
+	
+	my $rowSpan = 0;
+	foreach my $work( keys %$data){
+		
+		my $i;
+		my $size = @{$data->{$work}}; 
+		
+		for( $i = 0; $i < $size; $i++ )
+		{
+
+			my $task_time      = $data->{$work}[$i]{'timeEST'};  #print $task_time."<br>"; 
+			my $task_time_joined = $today." ".$task_time.":00"; #print "$task_time_joined<br>";
+			
+			my $task_time_string = str2time( $task_time_joined ); 
+
+			if(( $task_time_string > $timeArray[$counter]) && ( $task_time_string < $timeArray[$counter+1]))
+			
+			{
+				my $DBdata = telcoDB::selectData("$work - $data->{$work}[$i]{'taskname'}", "$task_time");
+				my @DBdata = @$DBdata;
+				my $workStatus 	= $DBdata[4];
+				my $workUser 	= $DBdata[1];
+				my $workCmpTime = substr( $DBdata[6], 0, index($DBdata[6], '.') ); 
+				
+				if($rowSpan ne 0)
+				{
+					my $newcounter = $counter."_".$count;
+					$rowToDisplay.="<tr bgcolor = \"$bgColor\" rownumber=\"$newcounter\" class=\"rowclass\" id=\"rowid$newcounter\">" ;	
+				}
+				else
+				{
+					#$rowToDisplay.="<tr bgcolor = \"$bgColor\" rownumber=\"$counter\">" ;
+				}
+										
+				if( $counter eq 0 )
+				{
+					my $newcounter = $counter."_".$count;
+					my $colForSelection;
+				
+					if($workStatus)
+					{
+						$colForSelection = "<td width=\"10%\">";
+							
+						if($workStatus eq "Work In Progress")
+						{
+						$colForSelection .="<p>Work In Progress</p>";
+						}
+						elsif($workStatus eq "Completed")
+						{
+						$colForSelection .="<p>Completed</p>"; 
+						}
+						elsif($workStatus eq "Not Completed")
+						{
+						$colForSelection .="<p>Not Completed</p>";
+						}
+						else
+						{
+							
+						}
+						$colForSelection .= "</td>";
+					}
+					else
+					{
+						$colForSelection = "<td width=\"10%\"><p>Not Completed</p></td>";
+					}
+					if($workUser)
+					{
+						$workUser= "<td>$workUser</td>";
+					}
+					else
+					{
+						$workUser="<td class=\"selectedvalue\" id=\"selectedvalue$newcounter\">";
+					}
+					$rowToDisplay.=" 
+					<td>$data->{$work}[$i]{'timeEST'}</td>
+					<td>$work - $data->{$work}[$i]{'taskname'}</td>
+					<td>$data->{$work}[$i]{'domain'}</td>"
+					.$colForSelection."".$workUser."</td><td>".$workCmpTime."</td>
+					</tr>";
+
+				}			
+				
+				elsif( $counter eq 1){
+				
+				my $newcounter = $counter."_".$count;
+				my $colForSelection;
+				
+					if($workStatus)
+					{
+						$colForSelection = "<td width=\"10%\">
+						<select class = \"selectval\" rownumber=\"$newcounter\">";
+						if($workStatus eq "Work In Progress")
+						{
+						$colForSelection .="<option selected value=\"Work In Progress\">Work In Progress</option><option  value=\"Completed\">Completed</option><option  value=\"Not Completed\">Not Completed</option>"
+						}
+						elsif($workStatus eq "Completed")
+						{
+						$colForSelection .="<option selected value=\"Completed\">Completed</option>"; 
+						}
+						elsif($workStatus eq "Not Completed")
+						{
+						$colForSelection .="<option selected value=\"Not Completed\">Not Completed</option><option value=\"Completed\">Completed</option><option  value=\"Work In Progress\">Work In Progress</option>";
+						}
+						else
+						{
+							
+						}
+						$colForSelection .= "</select>
+						</td>";
+					}
+					else
+					{
+						$colForSelection = "<td width=\"10%\">
+						<select class = \"selectval\" rownumber=\"$newcounter\">
+						<option selected disabled>Choose here</option>
+						<option value=\"Work In Progress\">Work In Progress</option>
+						<option value=\"Completed\">Completed</option>
+						<option value=\"Not Completed\">Not Completed</option>
+						</select>
+						</td>";
+					}
+					if($workUser)
+					{
+						$workUser= "<td>$workUser</td>";
+					}
+					else
+					{
+						$workUser="<td class=\"selectedvalue\" id=\"selectedvalue$newcounter\">";
+					}
+					$rowToDisplay.=" 
+					<td>$data->{$work}[$i]{'timeEST'}</td>
+					<td>$work - $data->{$work}[$i]{'taskname'}</td>
+					<td>$data->{$work}[$i]{'domain'}</td>"
+					.$colForSelection."".$workUser."</td>";
+					if(! $workCmpTime)
+					{
+					$rowToDisplay.= "<td><input type=\"submit\" name=\"submit\" id=\"datasubmit$newcounter\" value=\"Submit\" class=\"datasubmit\" rownumber=\"$newcounter\"/></td>
+					<input type=\"hidden\" name=\"rowdata$newcounter\" id=\"rowdata$newcounter\" class=\"rowdata\"/>				
+					<input type=\"hidden\" name=\"rowdatastatus$newcounter\" id=\"rowdatastatus$newcounter\" class=\"rowdatastatus\"/>				
+					</tr>";
+					}
+					else
+					{
+					$rowToDisplay.="<td>".$workCmpTime."</td></tr>";
+					}
+				} else {
+					$rowToDisplay.=" 
+					<td>$data->{$work}[$i]{'timeEST'}</td>
+					<td>$work - $data->{$work}[$i]{'taskname'}</td>
+					<td>$data->{$work}[$i]{'domain'}</td>".$blankCols."
+					</tr>";
+				}
+				$rowSpan++;
+				$dataFoundForHour = "YES";
+				$count++
+			}
+		}
+	}	
+	print "<input type=\"hidden\" name=\"rownumber\" class=\"nameforrow\" />";
+	my ( $start, $end ) = (time2str("%R", $timeArray[$counter]), time2str("%R", $timeArray[$counter+1]));
+	last if ( $end =~ m/(19:00)/);
+	my $tdRowvalue="<td rowspan=\"$rowSpan\"> $start - $end </td>";
+	print $tdValue.$tdRowvalue.$rowToDisplay;
+	if( $dataFoundForHour eq "NA" ){
+			print "<td colspan=6>NA</td></tr>"
+	}
+}
+
+print <<EOF
+
+</table>
+<br>
+</form>
+</body>
+</html>
+EOF
+;
+
+my $htmlF = $time->footer();
