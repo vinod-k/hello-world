@@ -1,0 +1,131 @@
+#!/ms/dist/perl5/bin/perl5.10 -w
+package telcoRFBDB;
+
+use MSDW::Version
+        'DateTime-TimeZone'  => '0.7904',
+        'Params-Validate'    => '0.91', # Used by DateTime::TimeZone
+        'Class-Singleton' => '1.03',
+        'HTML-Parser'        => '3.71',
+        'DateTime'           => '0.53',
+        'DateTime-Locale'    => '0.42',
+        'List-MoreUtils'     => '0.22',
+        'itrisk/ecctools'              => 'prod',
+        'Spreadsheet-ParseExcel' => '0.57',
+        'OLE-Storage_Lite'   => '0.19',
+        'File-Slurp'         => '9999.13', # for Reading the File.
+        'DateTime-TimeZone'  => '0.7904',
+        'Params-Validate'    => '0.91', # Used by DateTime::TimeZone
+        'Class-Singleton' => '1.03',
+        'DateTime'           => '0.53',
+        'DateTime-Locale'    => '0.42',
+		'DBD-DB2'        => '1.82-8.2.7',
+        'DBI'            => '1.631',
+        'DBD-Sybase'     => '1.15-oc15.7.0.04',
+        'DBD-MSDB2'      => '1.6',
+ 
+;
+
+use strict;
+use DBI;
+use Data::Dumper;# core
+use DateTime;
+
+
+#print "RFB module\n";
+my $dt3 =  DateTime->now ( time_zone => 'Asia/Kolkata' );
+
+
+my $datestring = localtime();
+
+my ($yearC, $dateC, $monthNameC, $monthNoC);
+
+if( $datestring =~ m/^([aA-zZ]){3}\s(\w\w\w)\s(\d\d|\s\d)\s(.*)\s(\d\d\d\d)/){
+
+        $yearC = $5;
+        $dateC = $3; chomp($dateC);
+        $monthNameC = $2;
+}
+
+my %months = ('Jan',1,'Feb',2,'Mar',3,'Apr',4,'May',5,'Jun',6,'Jul',7,'Aug',8,'Sep',9,'Oct',10,'Nov',11,'Dec',12);
+$monthNoC = $months{$monthNameC};
+
+$dateC =~ s/^\s+//;
+
+#my $curDate = "$yearC-$monthNoC-$dateC";
+
+my $curDate = $dt3->ymd;
+#print $curDate."\n";
+
+
+#=======================================================================#
+#Establish Database connection
+#=======================================================================#
+
+sub connectDB {
+
+        my $self = shift;
+        my $DB = $self->{db};
+
+        my $dbh = DBI->connect("dbi:MSDB2:$DB",'','',{
+        RaiseError => 1,
+        AutoCommit => 1,
+        });
+
+        return $dbh if $dbh;
+
+} # end connectDB
+
+
+#=======================================================================#
+#To disconnect the DB connection
+#=======================================================================#
+
+sub disconnectDB {
+
+        my $self = shift;
+        my $dbh = $self->{dbh};
+        $dbh->disconnect if $dbh;
+}
+
+sub insertRFBtelco {
+
+        my $self = shift;
+
+        my $PERFORMED_BY = $self->{User};
+        my $UPDATED_ON = $self->{date};
+	my $AUDIT_NAME;
+	my $RFB_ACTION;
+	my $RFB_STATUS;
+	my $RAG_STATUS;
+	my $COMMENTS;
+ 
+        #my $QUIZTEAM = $self->{Team};
+        #my $correctAns = $self->{correct_ans};
+        #my $dateTo = 'date_'.$QUIZDATE;
+        #my $hashQuiz = $self->{$dateTo};
+
+        #my $xml = $xs->XMLout($hashQuiz,NoAttr=>1,  KeyAttr => [], RootName => "$dateTo" );
+
+        #my $insertCmd = "insert into SCDATA.QUIZQUE (INSERTED_BY,QUEDATA,QUIZDATE,QUIZTEAM) values(\'$INSERTED_BY\',\'$xml\',\'$QUIZDATE\',\'$QUIZTEAM\')";
+
+	my $insertCmd = "INSERT INTO SCDATA.RFBTELCO (PERFORMED_BY, UPDATED_ON, AUDIT_NAME, RFB_ACTION, RFB_STATUS, RAG_STATUS, COMMENTS) VALUES 
+			(\'$PERFORMED_BY\', \'$UPDATED_ON\', \'$AUDIT_NAME\', \'$RFB_ACTION\', \'$RFB_STATUS\', \'$RAG_STATUS\', \'$COMMENTS\')";
+
+        $self->{insertCmd} = $insertCmd;
+        insertIntoDb($self);
+}
+
+sub insertIntoDb {
+
+        my $self = shift;
+
+        my $insertCmd = $self->{insertCmd};
+        my $dbh = $self->{dbh};
+
+        my $insertQue = $dbh ->prepare($insertCmd);
+		print "inserting\n";
+		#        $insertQue->execute();
+}
+
+
+1;
