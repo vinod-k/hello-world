@@ -1,0 +1,323 @@
+function New-ThreadDump #Function to take thread dump
+{
+	Param(
+			$WorkerPID,
+			$DumpScriptPath
+	)
+	BEGIN
+	{
+		Write-MSLogEntry -ToScreen -LogObject $logfile -Type Information -Message "About to take the dump for the Worker Processor : $WorkerPID - $Environment"| Out-Null
+	}
+	PROCESS
+	{
+	
+		$DumpScriptPath
+		$DumpResult_temp_temp = ($DumpScriptPath+' -pv -p '+$WorkerPID+' -c ".dump /ma /u d:\logfiles\'+$WorkerPID+'.w3wp.dmp; qd" ')
+		$DumpResult_temp = Invoke-Expression $DumpResult_temp_temp
+		Sleep 5
+		if(($DumpResult_temp -like "*Dump successfully written*") -as [bool])
+		{
+			[Array]$DumpResult = @($DumpResult_temp)
+			$DumpResult | %{if($_ -like "*Creating *"){ $temp1 = $_ } }
+			$DumpFilePath = @((@($temp1 -split "Creating ")[1]) -split "- mini user dump")[0]
+			if(Test-Path $DumpFilePath){Write-MSLogEntry -ToScreen -LogObject $logfile -Type Information -Message "Dump file has been created. Path is.. $DumpFilePath"| Out-Null;Return $True}
+			else{Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "Dump file has NOT been created successfully"| Out-Null; Return $false}
+		}
+		
+	}
+	END{}
+}
+
+function Get-WorkerProcessorID #Function to find Worker Process ID of the AppPoolID
+{
+	Param(
+			$AppPoolID
+	)
+	$WPID_string = C:\Windows\System32\inetsrv\appcmd.exe list wp | Select-String $AppPoolID
+	if( $WPID_string )
+	{	
+		$WPID_string -match 'WP \"(?<wpid>\d+)\" \(applicationPool\:(?<appid>\d+)\-root\)' | Out-Null
+		$WPID = $Matches.wpid
+		$AppPoolID_ = $Matches.appid +"-root"
+		$Status = $false
+		if( $AppPoolID -eq $AppPoolID_ )
+		{
+			Write-MSLogEntry -ToScreen -LogObject $logfile -Type Information -Message "The Worker Process ID ( $WPID ) exists for AppPoolID ( $AppPoolID )"| Out-Null
+			$Status = $true
+		}
+		else
+		{
+			Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "There is mismatch in AppPoolID"| Out-Null
+			$Status = $false
+			break;
+		}
+	}
+	else
+	{
+		Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "The Worker Process ID doesn't exists for AppPoolID ( $AppPoolID )"| Out-Null
+		$Status = $false
+		break;
+	}
+	if($Status){ Return $WPID }
+	else{ Return "Error" }
+}
+
+
+function Start-ApplicationPoolRecycle #Main function
+{
+	param (
+			[parameter(Mandatory=$true, HelpMessage="Enter the ComputerName")][string] $ComputerName,
+			[parameter(Mandatory=$false, HelpMessage="Enter the plant(ISG|MSWM)")][ValidateSet("ISG","MSWM")][string] $Plant,
+			[parameter(Mandatory=$true, HelpMessage="Enter the Environment(prod|qa|uat|build_complete)")][ValidateSet("PROD","QA","UAT","BUILD-COMPLETE")][string] $Environment,
+			[parameter(Mandatory=$false, HelpMessage="Enter the Sitename")][string] $SiteName,
+			[parameter(Mandatory=$true, HelpMessage="Enter the App pool id")][string] $AppPoolID,
+			[parameter(Mandatory=$true, HelpMessage="Enter the Reference")][string] $Reference
+	)
+	BEGIN
+	{
+		#Trying to import the MSMOdule
+		Write-Host -Fore Green "Importing the MSModule"
+		try
+		{
+			Import-Module -Name "\\msad\root\bin\PSModules\msmodule\MSModule.psd1" -Force -ea 1
+			Write-Host -Fore Green "MSModule has been imported successfully"
+		}
+		catch
+		{
+			Write-Host -Fore Green "MSModule is unable to import. Cannot proceed further."
+			break;
+		}
+		#Trying to import the MSLog
+		try
+		{
+			Import-MSModule MSLOG -Force -ea 1 | Out-Null
+			Write-Host -Fore Green "MSLOG has been imported successfully"
+		}
+		catch
+		{
+			Write-Host -Fore Green "MSLog is unable to import. Cannot proceed further."
+			break;
+		}
+		#Creating the log file object.
+		$LogObjectPath = 'D:\LogFiles\IISRecycle'
+		try
+		{
+			$logfile = New-MSLogFile -path $LogObjectPath -fileprefix $ENV:UserName -ea 1
+		}
+		catch
+		{
+			Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "Cannot create the log object in the path $LogObjectPath and hence cannot proceed further." | Out-Null
+			break;
+		}
+		Write-MSLogEntry -Type Information -ToScreen -Message "Reference is - $Reference" -LogObject $logfile | Out-Null
+		#looking for the batch file which takes the dump
+		$DumpScriptPath = '\\ms\dist\msde\PROJ\devtools\prod\bin\cdb.cmd'
+		if(Test-Path $DumpScriptPath)
+		{
+			Write-MSLogEntry Information ("'"+$DumpScriptPath+"' - file found") $logfile -ToScreen | Out-Null
+		}
+		else
+		{
+			if($PSScriptRoot.EndsWith('\')){ $DumpScriptPath = ($PSScriptRoot+'cdb.exe') }
+			else{ $DumpScriptPath = ($PSScriptRoot+'\cdb.exe') }
+			if(Test-Path $DumpScriptPath)
+			{
+				Write-MSLogEntry Information ("'"+$DumpScriptPath+"' - file found") $logfile -ToScreen | Out-Null
+			}
+			else
+			{
+				Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message ("The required file cannot be found and hence cannot proceed further. File path is '"+$DumpScriptPath+"'") | Out-Null
+				break;
+			}
+		}
+		
+		#Trying to import the WebAdministration
+		try
+		{
+			Import-Module WebAdministration -Force -ea 1
+			Write-MSLogEntry Information "WebAdministration has been imported successfully" $logfile -ToScreen | Out-Null
+		}
+		catch
+		{
+			Write-MSLogEntry Error "WebAdministration is unable to import. Cannot proceed further." $logfile -ToScreen | Out-Null
+			break;
+		}
+		#Trying to import the MSESP
+		try
+		{
+			Import-MSModule MSEsp -Force -ea 1 | Out-Null
+			Write-MSLogEntry Information "MSESP has been imported successfully." $logfile -ToScreen | Out-Null
+		}
+		catch
+		{
+			Write-MSLogEntry Error "MSESP is unable to import. Cannot proceed further." $logfile -ToScreen | Out-Null
+			break;
+		}
+		Switch($Environment)
+		{
+			"PROD"	{$Environment_ = "PRODUCTION"}
+			"QA"	{$Environment_ = "QA"}
+			"BUILD-COMPLETE" {$Environment_ = "BUILD-COMPLETE"}
+			Default {
+						Write-MSLogEntry Error "Switch case is executing the Default Section .Please check for the other environments that can be added the script." $logfile -ToScreen | Out-Null
+			}
+		}
+		$ComputerName = $ComputerName.ToUpper()
+		$Environment = $Environment.ToUpper()
+		[Bool]$GoodToPrceed = $false
+		if($Plant){	Write-MSLogEntry -Type Information -ToScreen -Message "Plant is $Plant"  -LogObject $logfile | Out-Null}
+		else{ Write-MSLogEntry -Type Warning -ToScreen -Message "Plant is not provided" -LogObject $logfile | Out-Null}
+		if($SiteName){	Write-MSLogEntry -Type Information -ToScreen -Message "SiteName is $SiteName"  -LogObject $logfile | Out-Null}
+		else{ Write-MSLogEntry -Type Warning -ToScreen -Message "SiteName is not provided" -LogObject $logfile | Out-Null}
+	}
+	PROCESS
+	{
+		#Validations - Start
+		try
+		{
+			Test-Connection $ComputerName -Count 2 -ea 1 | Out-Null
+			Write-MSLogEntry Information "Host - $ComputerName is pinging." $logfile -ToScreen | Out-Null
+		}
+		catch
+		{
+			Write-MSLogEntry Error "Host is NOT pinging and hence cannot proceed further." $logfile -ToScreen | Out-Null
+		}
+		$OS = (Get-MSESPProperty $ComputerName os -AsObject | Select -ExpandProperty OPERATING_SYSTEM).OS_Class
+		if($OS)
+		{
+			if($OS -eq "WINDOWS")
+			{
+				$GoodToPrceed = $true
+				Write-MSLogEntry Information "$ComputerName is a $OS Host." $logfile -ToScreen | Out-Null
+			}
+			else
+			{
+				$GoodToPrceed = $false
+				Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "$ComputerName is a $OS Host and hence cannot proceed further." | Out-Null
+				break;
+			}
+		}
+		else
+		{
+			$GoodToPrceed = $false
+			Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "Unable to get the host $ComputerName ESP OS information and hence cannot proceed further"| Out-Null
+			break;
+		}
+		if($GoodToPrceed)
+		{
+			$ESP_ENV = (Get-MSESPProperty -ComputerName $ComputerName -Property status -AsObject).Status
+			if($ESP_ENV)
+			{
+				$ESP_ENV = $ESP_ENV.ToUpper()
+				if($ESP_ENV -eq $Environment_)
+				{
+					Write-MSLogEntry -ToScreen -LogObject $logfile -Type Information -Message "Environment has been validated with ESP successfully"| Out-Null
+				}
+				else
+				{
+					Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "The host : $ComputerName is not '$Environment' and as per ESP records it is '$ESP_ENV'"| Out-Null
+					break;
+				}
+			}
+			else
+			{
+				Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "Unable to get the host $ComputerName ESP Status information and hence cannot proceed further"| Out-Null
+				break;
+			}
+		}
+		#Validations - End
+		#Validating the AppPoolID - Start
+		Write-Host -Fore Green "checking apppools"
+		
+		$AppPoolMainResult_ = Invoke-Command -ComputerName $ComputerName -ScriptBlock {
+			[Array]$AppPoolMainResult = @(C:\Windows\System32\inetsrv\appcmd.exe list AppPools)
+			$AppPoolMainResult
+		}
+		
+		$AppPoolSearch = $AppPoolMainResult_ | ?{$_ -like ('APPPOOL "'+$AppPoolID+'"*') } 
+		
+		Write-Host -Fore Green $AppPoolSearch
+		
+		if($AppPoolSearch)
+		{
+			if(($AppPoolSearch | Measure-Object).Count -eq 1)
+			{
+				#Good to proceed
+				$GoodToPrceed = $true
+				Write-MSLogEntry -ToScreen -LogObject $logfile -Type Information -Message "The AppPoolID ( $AppPoolID ) has been validated successfully"| Out-Null
+			}
+			elseif(($AppPoolSearch | Measure-Object).Count -gt 1)
+			{
+				#AppPoolID conflict and hence CANNOT PROCEED FURTHER.
+				$GoodToPrceed = $false
+				Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "There are multiple AppPoolIDs found with the input ( $AppPoolID ) and hence cannot proceed further"| Out-Null
+				break;
+			}
+			else
+			{
+				#Developer exception
+				$GoodToPrceed = $false
+				Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "Something went wrong. Please check with Developer."| Out-Null
+				break;
+			
+			}
+		}
+		else
+		{
+			$GoodToPrceed = $false
+			Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "AppPoolID ($AppPoolID) is not found in the host $ComputerName and hence cannot proceed further."| Out-Null
+			break;
+			
+		}
+		#Validating the AppPoolID - End
+		Write-Host "*******WP finding******"
+		$WPID_Old = Get-WorkerProcessorID $AppPoolID
+		$DumpRunResult = New-ThreadDump -WorkerPID $WPID_Old -DumpScriptPath $DumpScriptPath
+		$DumpRunResult = 1
+		if($DumpRunResult)
+		{
+			#Recycling the pool id
+			[bool]$i = $true # true means loop should iterate again.
+			$Retry = 0
+			do
+			{
+				$Retry++
+				$Error.Clear()
+				try
+				{
+					Restart-WebAppPool $AppPoolID -ea 1
+					Write-MSLogEntry -ToScreen -LogObject $logfile -Type Information -Message "The AppPoolID ( $AppPoolID ) has been Recycled successfully."| Out-Null
+				}
+				catch
+				{
+					Write-MSLogEntry -ToScreen -LogObject $logfile -Type Error -Message "An error occurred while restarting the WebApppool : $AppPoolID. The below is the detailed error. Cannot proceed further."| Out-Null
+					Write-Host ("`n`n`$Error[0]`n`n`n")
+					Add-Content $($Error[0]) -path $logfile.path
+					$i = $false
+					break;
+				}
+				For($time = 1; $time -le 60; $time++)
+				{
+					Sleep 1
+					write-progress -activity "Waiting for the replication to take place" -status "Sleeping :: $time/60 Seconds more" -percentcomplete (($time/60)*100) -id 0
+				}
+				write-progress -activity "Waiting for the replication to take place" -status "Sleeping :: $time/60 Seconds more" -percentcomplete 100 -id 0 -Completed
+				$WPID_New = Get-WorkerProcessorID $AppPoolID
+				if($WPID_New -eq $WPID_Old)
+				{
+					#means that the recycle hasn't happened, so lets try for 3 more times.
+					$i = $true
+					Write-MSLogEntry -Type Warning -LogObject $logfile -Message "The old WPID and latest WPID is same, hence assuming that the recycle hasn't successful therefore proceeding to recycle again. Retry = $Retry"
+				}
+				else
+				{
+					$i = $false
+					Write-MSLogEntry -ToScreen -LogObject $logfile -Type Information -Message "The Recycle is Successful."| Out-Null
+				}
+				
+			} While(($i -eq $true) -and $Retry -ne 5);
+		}
+	}
+	END{}
+}
+Export-ModuleMember -Function Start-ApplicationPoolRecycle
