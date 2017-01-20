@@ -1,0 +1,315 @@
+#!/ms/dist/perl5/bin/perl5.10 -w
+package telcoDB;
+
+use MSDW::Version
+        'DateTime-TimeZone'  => '0.7904',
+        'Params-Validate'    => '0.91', # Used by DateTime::TimeZone
+        'Class-Singleton' => '1.03',
+        'HTML-Parser'        => '3.71',
+        'DateTime'           => '0.53',
+        'DateTime-Locale'    => '0.42',
+        'List-MoreUtils'     => '0.22',
+        'itrisk/ecctools'              => 'prod',
+        'Spreadsheet-ParseExcel' => '0.57',
+        'OLE-Storage_Lite'   => '0.19',
+        'File-Slurp'         => '9999.13', # for Reading the File.
+        'DateTime-TimeZone'  => '0.7904',
+        'Params-Validate'    => '0.91', # Used by DateTime::TimeZone
+        'Class-Singleton' => '1.03',
+        'DateTime'           => '0.53',
+        'DateTime-Locale'    => '0.42',
+		'DBD-DB2'        => '1.82-8.2.7',
+        'DBI'            => '1.631',
+        'DBD-Sybase'     => '1.15-oc15.7.0.04',
+        'DBD-MSDB2'      => '1.6', 
+		'Date-Calc'          => '6.3',  
+		'Carp-Clan'          => '6.04',  # Used by Date::Calc
+		'Time-modules'       => '99.111701',
+		'TimeDate'           => '2.30', 
+;
+
+use strict;
+use DBI;
+use Data::Dumper;
+use DateTime;
+use CGI qw(:standard);
+use CGI::Carp qw(fatalsToBrowser);
+
+use Date::Format;
+use Date::Parse;
+use Time::ParseDate;
+
+use Time::Local;
+use POSIX qw/strftime/;
+use DBI;
+
+my $dt3 =  DateTime->now ( time_zone => 'Asia/Kolkata' );
+
+my $curDate = $dt3->ymd;
+
+=com
+sub DBinsertNotCompleted
+{
+	print "Insertig not completed\n";
+	
+	my $DB='NYTD_EC_CATALOG';
+	my $dbh = DBI->connect("dbi:MSDB2:$DB",'','',{
+			RaiseError => 1,
+			AutoCommit => 1,
+	});
+	
+	my $cgi = CGI->new();
+	my $rownumber = $cgi->param('rownumber');
+	my $rowdata = $cgi->param("rowdata$rownumber");  
+	my $rowdatastatus = $cgi->param("rowdatastatus$rownumber");  
+	
+	print "rowdata: $rowdata";
+	
+	my @rowdata = split("!!!",$rowdata);
+	print Dumper(@rowdata);
+	
+}
+=cut
+
+sub DBinsert
+{
+	my $env="";
+	my $DB='NYTD_EC_CATALOG';
+	my $dbh = DBI->connect("dbi:MSDB2:$DB",'','',{
+			RaiseError => 1,
+			AutoCommit => 1,
+	});
+	my $cgi = CGI->new();
+	my $rownumber = $cgi->param('rownumber');
+	my $rowdata = $cgi->param("rowdata$rownumber");  
+	my $rowdatastatus = $cgi->param("rowdatastatus$rownumber");  
+	my @rowdata = split("!!!",$rowdata);
+#print Dumper(\@rowdata);
+	my $rowdataSize = scalar @rowdata;
+	#print $rowdataSize ;
+	shift @rowdata if($rowdataSize == 6);
+		
+	my ($performedBy,$updatedOn,$auditName,$rfbAction,$stActionTime,$completeActionTime,$rfbStatus,$rgaStatus,$comments);
+	
+	$performedBy = $rowdata[4];
+	$updatedOn = $rowdata[0];
+	$auditName =$rowdata[1];
+	$rfbAction = $rowdatastatus;
+	my $timim =$rowdata[0].":00"; 
+	$timim =~ s/\s//g; 
+	$stActionTime = $curDate." ".$timim;
+
+	
+	
+	my $sql ="INSERT INTO SCDATA.RFBTELCO (PERFORMED_BY, AUDIT_NAME, RFB_ACTION, ST_ACTIONTIME,RFB_STATUS,RAG_STATUS,COMMENTS) VALUES (\'$performedBy\',\'$auditName\',\'$rfbAction\',\'$stActionTime\',\'$rfbStatus\',\'$rgaStatus\',\'$comments\')";
+	
+	my $sql_with_date = "INSERT INTO SCDATA.RFBTELCO (PERFORMED_BY, AUDIT_NAME, RFB_ACTION, ST_ACTIONTIME, COMPLETE_ACTIONTIME, RFB_STATUS,RAG_STATUS,COMMENTS) VALUES (\'$performedBy\',\'$auditName\',\'$rfbAction\',\'$stActionTime\', CURRENT_TIMESTAMP, \'$rfbStatus\',\'$rgaStatus\',\'$comments\')";
+	
+	my $sql_update_query = "UPDATE SCDATA.RFBTELCO SET COMPLETE_ACTIONTIME = CURRENT_TIMESTAMP, RFB_ACTION='Completed' 
+						WHERE ( RFB_ACTION = 'Work In Progress' OR RFB_ACTION = 'Not Completed' ) AND AUDIT_NAME = ? AND ST_ACTIONTIME LIKE ?";
+	
+	my $sql_exists_check = "SELECT 1 FROM SCDATA.RFBTELCO
+						WHERE AUDIT_NAME = ?
+						AND ST_ACTIONTIME LIKE ?";
+							
+	if( $rfbAction eq 'Completed'){
+		my $exists = $dbh->selectrow_array($sql_exists_check, undef, $auditName, $curDate.'%');
+		
+		if( $exists ){
+			my $sth_update = $dbh->prepare( $sql_update_query );
+			$sth_update->execute( $auditName, $curDate.'%') or die $DBI::errstr;
+			$sth_update->execute() or die $DBI::errstr;
+			$sth_update->finish();			
+		}
+		else 
+		{
+			my $sth = $dbh -> prepare($sql_with_date);
+			#print "<br>";
+			#print $sql_with_date;
+			$sth->execute() or die $DBI::errstr;
+			$sth->finish();
+		}
+	} 
+	else
+	{	
+		my $sth = $dbh -> prepare($sql);
+		$sth->execute() or die $DBI::errstr;
+		$sth->finish();
+	}
+}
+
+sub selectData
+{
+	
+	my ($taskName, $taskTime) = @_;
+	$taskTime = $taskTime.":00"; 
+	$taskTime =~ s/\s//g; 
+	$taskTime = $curDate." ".$taskTime;
+	
+	
+	my $env="";
+	my @taskData;
+	my $DB='NYTD_EC_CATALOG';
+	my $dbh = DBI->connect("dbi:MSDB2:$DB",'','',{
+			RaiseError => 1,
+			AutoCommit => 1,
+	});
+	
+	my $sql = "SELECT * FROM SCDATA.RFBTELCO WHERE ST_ACTIONTIME ='$taskTime' AND AUDIT_NAME ='$taskName'";
+	
+	my $sth = $dbh -> prepare($sql);
+	
+	$sth->execute() or die $DBI::errstr;
+	
+	while (my @row = $sth->fetchrow_array())
+	{
+		(@taskData) = @row;
+	}
+	$sth->finish();
+	return \@taskData;
+	
+}
+
+sub getDataForReport
+{
+	my $self = shift;
+	
+	my %dataFromReport;
+    
+	my ($s, $min, $h, $d, $m, $y) = localtime();
+ 
+	my $time      = timelocal $s, $min, $h, $d, $m, $y;
+	my $today     = strftime "%Y-%m-%d %T", localtime;
+	my $yesterday = strftime "%Y-%m-%d %T", $s, $min, $h, $d - 1, $m, $y;
+
+	#print "$today -> $yesterday\n";
+
+
+	my $DB  = 'NYTD_EC_CATALOG';
+		my $dbh = DBI->connect("dbi:MSDB2:$DB",'','',{
+				RaiseError => 1,
+				AutoCommit => 1,
+		});
+		
+	my $selectQueCmd = "select * from SCDATA.RFBTELCO where ST_ACTIONTIME between ('$yesterday') and ('$today') ";
+
+	$self->{selectCmd} = $selectQueCmd;
+	
+	my $selectedQue = selectFrom_db($self);
+	
+	my ( $RFB_ID, $PERFORMED_BY, $UPDATED_ON, $AUDIT_NAME, $RFB_ACTION, $ST_ACTIONTIME, $COMPLETE_ACTIONTIME, $RFB_STATUS, $RAG_STATUS, $COMMENTS );
+	
+	$selectedQue->bind_columns(undef,\$RFB_ID,\$PERFORMED_BY,\$UPDATED_ON,\$AUDIT_NAME,\$RFB_ACTION,\$ST_ACTIONTIME,\$COMPLETE_ACTIONTIME,\$RFB_STATUS,\$RAG_STATUS,\$COMMENTS);
+	
+	while ($selectedQue->fetch()){
+			$dataFromReport{$RFB_ID}{RFB_ID} 			= $RFB_ID;
+			$dataFromReport{$RFB_ID}{PERFORMED_BY} 		= $PERFORMED_BY;
+			$dataFromReport{$RFB_ID}{AUDIT_NAME} 		= $AUDIT_NAME;
+			$dataFromReport{$RFB_ID}{RFB_ACTION} 		= $RFB_ACTION;
+			$dataFromReport{$RFB_ID}{ST_ACTIONTIME} 	= $ST_ACTIONTIME;
+			$dataFromReport{$RFB_ID}{COMPLETE_ACTIONTIME} = $COMPLETE_ACTIONTIME;
+	}
+	
+	return \%dataFromReport;
+	
+}
+
+sub getDataForOneWeek {
+	
+	my $self = shift;
+
+	my %dataFromReport;
+    
+	my $DB  = 'NYTD_EC_CATALOG';
+	my $dbh = DBI->connect("dbi:MSDB2:$DB",'','',{
+			RaiseError => 1,
+			AutoCommit => 1,
+	});
+		
+	my $time_now = time2str("%Y-%m-%d %T", time);
+	my $last_week = time2str("%Y-%m-%d %T", parsedate("-1 week", time )); 
+	
+	my $selectQueCmd = "select * from SCDATA.RFBTELCO where ST_ACTIONTIME between ('$last_week') and ('$time_now') ";
+	
+	$self->{selectCmd} = $selectQueCmd;
+	
+	my $selectedQue = selectFrom_db($self);
+	
+	my ( $RFB_ID, $PERFORMED_BY, $UPDATED_ON, $AUDIT_NAME, $RFB_ACTION, $ST_ACTIONTIME, $COMPLETE_ACTIONTIME, $RFB_STATUS, $RAG_STATUS, $COMMENTS );
+	
+	$selectedQue->bind_columns(undef,\$RFB_ID,\$PERFORMED_BY,\$UPDATED_ON,\$AUDIT_NAME,\$RFB_ACTION,\$ST_ACTIONTIME,\$COMPLETE_ACTIONTIME,\$RFB_STATUS,\$RAG_STATUS,\$COMMENTS);
+	
+	while ($selectedQue->fetch()){
+			$dataFromReport{$RFB_ID}{RFB_ID} 			= $RFB_ID;
+			$dataFromReport{$RFB_ID}{PERFORMED_BY} 		= $PERFORMED_BY;
+			$dataFromReport{$RFB_ID}{AUDIT_NAME} 		= $AUDIT_NAME;
+			$dataFromReport{$RFB_ID}{RFB_ACTION} 		= $RFB_ACTION;
+			$dataFromReport{$RFB_ID}{ST_ACTIONTIME} 	= $ST_ACTIONTIME;
+			$dataFromReport{$RFB_ID}{COMPLETE_ACTIONTIME} = $COMPLETE_ACTIONTIME;
+	}
+	
+	return \%dataFromReport;
+}
+
+sub getDataForOneMonth {
+
+	my $self = shift;
+
+	my %dataFromReport;
+    
+	my $DB  = 'NYTD_EC_CATALOG';
+	my $dbh = DBI->connect("dbi:MSDB2:$DB",'','',{
+			RaiseError => 1,
+			AutoCommit => 1,
+	});
+		
+	my $time_now = time2str("%Y-%m-%d %T", time);
+	my $last_month = time2str("%Y-%m-%d %T", parsedate("-1 month", time )); 
+	
+	my $selectQueCmd = "select * from SCDATA.RFBTELCO where ST_ACTIONTIME between ('$last_month') and ('$time_now') ";
+	
+	$self->{selectCmd} = $selectQueCmd;
+	
+	my $selectedQue = selectFrom_db($self);
+	
+	my ( $RFB_ID, $PERFORMED_BY, $UPDATED_ON, $AUDIT_NAME, $RFB_ACTION, $ST_ACTIONTIME, $COMPLETE_ACTIONTIME, $RFB_STATUS, $RAG_STATUS, $COMMENTS );
+	
+	$selectedQue->bind_columns(undef,\$RFB_ID,\$PERFORMED_BY,\$UPDATED_ON,\$AUDIT_NAME,\$RFB_ACTION,\$ST_ACTIONTIME,\$COMPLETE_ACTIONTIME,\$RFB_STATUS,\$RAG_STATUS,\$COMMENTS);
+	
+	while ($selectedQue->fetch()){
+			$dataFromReport{$RFB_ID}{RFB_ID} 			= $RFB_ID;
+			$dataFromReport{$RFB_ID}{PERFORMED_BY} 		= $PERFORMED_BY;
+			$dataFromReport{$RFB_ID}{AUDIT_NAME} 		= $AUDIT_NAME;
+			$dataFromReport{$RFB_ID}{RFB_ACTION} 		= $RFB_ACTION;
+			$dataFromReport{$RFB_ID}{ST_ACTIONTIME} 	= $ST_ACTIONTIME;
+			$dataFromReport{$RFB_ID}{COMPLETE_ACTIONTIME} = $COMPLETE_ACTIONTIME;
+	}
+	
+	return \%dataFromReport;
+	#print Dumper(\%dataFromReport);
+
+}
+
+sub selectFrom_db {
+
+	my $self = shift;
+	my $selectCmd = $self->{selectCmd};
+
+	#print "\nThe select command is --$selectCmd---\n";
+
+	
+	my $DB  = 'NYTD_EC_CATALOG';
+	my $dbh = DBI->connect("dbi:MSDB2:$DB",'','',{
+			RaiseError => 1,
+			AutoCommit => 1,
+	});
+	
+	my $selectedData = $dbh->prepare($selectCmd);
+	$selectedData->execute(); 
+
+	return $selectedData;
+
+}
+
+
+1;
